@@ -18,3 +18,7 @@ Register the user `foobar` add Administrator.
 ## Demo
 
 [![demo](https://asciinema.org/a/510116.svg)](https://asciinema.org/a/510116?autoplay=1)
+
+## License
+
+GPLv3+
