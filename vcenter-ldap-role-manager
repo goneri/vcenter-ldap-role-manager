@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+
+import argparse
+import configparser
+import logging
+import os
+import sys
+
+import time
+from selenium.webdriver.chrome.options import Options
+
+from selenium import webdriver
+from selenium.common.exceptions import TimeoutException as SeleniumTimeout
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+inventory = configparser.ConfigParser()
+inventory.read("/tmp/inventory-vmware_rest")
+
+
+def login(
+    vmware_host, vmware_user, vmware_password, headless=False, ignore_ssl_errors=False
+):
+
+    chrome_options = Options()
+    chrome_options.headless = headless
+    if ignore_ssl_errors:
+        chrome_options.add_argument("--ignore-ssl-errors=yes")
+        chrome_options.add_argument("--ignore-certificate-errors")
+    driver = webdriver.Chrome(options=chrome_options)
+
+    logging.debug(f"connecting to server {vmware_host} with user {vmware_user}")
+    driver.get(f"https://{vmware_host}/ui")
+    logging.debug(driver.title)
+    if "Privacy error" in driver.title:
+        logging.error(
+            "Privacy Error, use --ignore-ssl-errors parameter to ignore SSL errors."
+        )
+        time.sleep(0 if headless else 2)
+        driver.close()
+        sys.exit(1)
+
+    if "Login" not in driver.title:
+        logging.error("Cannot reach the Login page.")
+        time.sleep(0 if headless else 2)
+        driver.close()
+        sys.exit(1)
+    elem = driver.find_element(By.ID, "username")
+    elem.clear()
+    elem.send_keys(vmware_user)
+    elem = driver.find_element(By.ID, "password")
+    elem.clear()
+    elem.send_keys(vmware_password)
+    elem.send_keys(Keys.RETURN)
+    assert "No results found." not in driver.page_source
+
+    elem = WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located((By.CLASS_NAME, "resource-meter"))
+    )
+    logging.info("Authentication done.")
+    return driver
+
+
+def set_role(driver, username, domain, role):
+    driver.get("https://vcenter.test/ui/app/admin/permissions")
+    logging.debug("Permission page is loaded")
+
+    elem = WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located((By.XPATH, "//button[@data-test-id='add']"))
+    )
+    time.sleep(1)
+    elem.click()
+    logging.info(f"Setting the role {role} to user {username}")
+
+    elem = WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located(
+            (
+                By.XPATH,
+                f"//select[@data-test-id='user-domain-select']/option[text()='{domain}']",
+            )
+        )
+    )
+    elem.click()
+    elem = WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located((By.ID, "txtUser"))
+    )
+    elem.send_keys(username)
+    time.sleep(1)
+    elem = driver.find_element(By.XPATH, f"//strong[text()='{username}']")
+    time.sleep(1)
+    elem.click()
+    time.sleep(1)
+
+    elem = WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located(
+            (
+                By.XPATH,
+                f"//select[@data-test-id='user-role-select']/option[text()='{role}']",
+            )
+        )
+    )
+    elem.click()
+
+    elem = driver.find_element(By.XPATH, "//button[@data-test-id='submitBtn']")
+    elem.click()  # First click to get the focus on the button
+    elem.click()
+
+    elem = driver.find_element(
+        By.XPATH, f"//label[text()='{domain.upper()}\{username}']"
+    )
+    logging.info(f"Role {role} set to user {username}")
+    return driver
+
+
+def set_group(driver, username, domain, group):
+    driver.get("https://vcenter.test/ui/app/admin/sso-users/groups")
+    try:
+        elem = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//span[text()='{group}']",
+                )
+            )
+        )
+    except SeleniumTimeout:
+        logging.error(f"Cannot find group: {group}")
+        return
+    driver.execute_script("arguments[0].click();", elem)
+    elem = WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located((By.CLASS_NAME, "add-group"))
+    )
+    logging.info(f"Adding user {username} to group {group} ")
+    driver.execute_script("arguments[0].click();", elem)
+
+    elem = WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located(
+            (
+                By.XPATH,
+                f"//select[@aria-label='Select a domain']/option[text()='{domain}']",
+            )
+        )
+    )
+    elem.click()
+    elem = driver.find_element(By.ID, "pscui.group.workflows.group-members.principal")
+    elem.send_keys(username)
+    elem = driver.find_element(By.XPATH, "//button[@data-test-id='submitBtn']")
+    elem.click()
+    # Ensure we've got the new record
+    assert driver.find_element(By.XPATH, f"//clr-dg-cell[text()='{username}']")
+    assert driver.find_element(By.XPATH, f"//clr-dg-cell[text()='{domain}']")
+    logging.info(f"User {username} added in group {group} ")
+    return driver
+
+
+# driver = login()
+# set_role(driver, "goneri", "datastore.test", "Administrator")
+# set_group(driver, "goneri", "datastore.test", "ActAsUsers")
+# set_group(driver, "goneri", "datastore.test", "Administrators")
+
+
+parser = argparse.ArgumentParser(
+    description="vSphere - Add AD/LDAP user to group and role"
+)
+parser.add_argument(
+    "--debug", action="store_true", help="Expose more information in the console."
+)
+parser.add_argument(
+    "--vmware-host",
+    type=str,
+    default=False,
+    help="vSphere host, default is to use VMWARE_HOST environment variable",
+)
+parser.add_argument(
+    "--vmware-user",
+    type=str,
+    default=False,
+    help="vSphere username, default is to use VMWARE_USER environment variable",
+)
+parser.add_argument(
+    "--vmware-password",
+    type=str,
+    default=False,
+    help="vSphere password, default is to use VMWARE_PASSWORD environment variable",
+)
+parser.add_argument("--headless", action="store_true", help="Hide the broswer window.")
+parser.add_argument(
+    "--ignore-ssl-errors",
+    action="store_true",
+    help="Ignore the SSL errors with the vSphere server.",
+)
+parser.add_argument("username", type=str, help="User name")
+parser.add_argument("domain", type=str, help="The domain name")
+parser.add_argument(
+    "--add-group",
+    type=str,
+    action="append",
+    default=[],
+    help="Group to add the user to, e.g: Administrators",
+)
+parser.add_argument(
+    "--add-role",
+    type=str,
+    action="append",
+    default=[],
+    help="Role to add the user to, e.g: Administrator",
+)
+args = parser.parse_args()
+if not (args.add_group or args.add_role):
+    logging.error("Pass either --add-group or -add-role argument.")
+    sys.exit(1)
+
+if args.debug:
+    logging.basicConfig(level=logging.DEBUG)
+else:
+    logging.basicConfig(level=logging.INFO)
+
+vmware_host = args.vmware_host or os.environ.get("VMWARE_HOST")
+vmware_user = args.vmware_user or os.environ.get("VMWARE_USER")
+vmware_password = args.vmware_password or os.environ.get("VMWARE_PASSWORD")
+
+if not (vmware_host and vmware_user and vmware_password):
+    logging.error(
+        "No credential defined. Use either the --vmware-{host,user,password} "
+        "parameter or the VMWARE_{HOST,USER,PASSWORD} environment variables"
+    )
+    sys.exit(1)
+
+
+driver = login(
+    vmware_host, vmware_user, vmware_password, args.headless, args.ignore_ssl_errors
+)
+try:
+    for group in args.add_group:
+        set_group(driver, args.username, args.domain, group)
+
+    for role in args.add_role:
+        set_role(driver, args.username, args.domain, role)
+finally:
+    driver.close()
