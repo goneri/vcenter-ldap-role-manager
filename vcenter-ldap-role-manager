@@ -100,6 +100,7 @@ def set_role(driver, username, domain, role):
         )
     )
     elem.click()
+    driver.find_element(By.ID, "checkBoxDoPropagate").click()
 
     elem = driver.find_element(By.XPATH, "//button[@data-test-id='submitBtn']")
     elem.click()
