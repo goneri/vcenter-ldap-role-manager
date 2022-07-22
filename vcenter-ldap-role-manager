@@ -108,7 +108,7 @@ def set_role(driver, username, domain, role):
     elem.click()
 
     elem = driver.find_element(
-        By.XPATH, f"//label[text()='{domain.upper()}\{username}']"
+        By.XPATH, f"//label[text()='{domain.upper()}\\{username}']"
     )
     logging.info(f"Role {role} set to user {username}")
     return driver
