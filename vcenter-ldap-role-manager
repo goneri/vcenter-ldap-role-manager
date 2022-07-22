@@ -110,6 +110,10 @@ def set_role(driver, username, domain, role):
 
 def set_group(driver, username, domain, group):
     driver.get("https://vcenter.test/ui/app/admin/sso-users/groups")
+    elem = driver.find_element(By.ID, "searchInput")
+    elem.send_keys(group)
+    elem.send_keys(Keys.ENTER)
+
     try:
         elem = WebDriverWait(driver, 5).until(
             EC.presence_of_element_located(
