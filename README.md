@@ -4,8 +4,12 @@ There is no API to set a role or a group to a LDAP/AD user. This CLI uses Seleni
 
 ## Requirements
 
-- `selenium`
+- `selenium`:
+    - `pip install selenium` in a Python virtual env
+    - `dnf install python3-selenium` on Fedora
+
 - `chromedriver`, `dnf install chromedriver` on Fedora
+
 
 ## Usage
 

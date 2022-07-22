@@ -56,7 +56,7 @@ def login(
     elem.send_keys(Keys.RETURN)
     assert "No results found." not in driver.page_source
 
-    elem = WebDriverWait(driver, 5).until(
+    elem = WebDriverWait(driver, 15).until(
         EC.presence_of_element_located((By.CLASS_NAME, "resource-meter"))
     )
     logging.info("Authentication done.")
@@ -88,9 +88,7 @@ def set_role(driver, username, domain, role):
     )
     elem.send_keys(username)
     time.sleep(1)
-    elem = driver.find_element(By.XPATH, f"//strong[text()='{username}']")
-    time.sleep(1)
-    elem.click()
+    elem.send_keys(Keys.ENTER)
     time.sleep(1)
 
     elem = WebDriverWait(driver, 5).until(
@@ -104,18 +102,18 @@ def set_role(driver, username, domain, role):
     elem.click()
 
     elem = driver.find_element(By.XPATH, "//button[@data-test-id='submitBtn']")
-    elem.click()  # First click to get the focus on the button
     elem.click()
 
-    elem = driver.find_element(
-        By.XPATH, f"//label[text()='{domain.upper()}\\{username}']"
-    )
     logging.info(f"Role {role} set to user {username}")
     return driver
 
 
 def set_group(driver, username, domain, group):
     driver.get("https://vcenter.test/ui/app/admin/sso-users/groups")
+    elem = driver.find_element(By.ID, "searchInput")
+    elem.send_keys(group)
+    elem.send_keys(Keys.ENTER)
+
     try:
         elem = WebDriverWait(driver, 5).until(
             EC.presence_of_element_located(
@@ -146,19 +144,32 @@ def set_group(driver, username, domain, group):
     elem.click()
     elem = driver.find_element(By.ID, "pscui.group.workflows.group-members.principal")
     elem.send_keys(username)
+    time.sleep(1)
+    elem.send_keys(Keys.ENTER)
+    # Give enough time to vcenter to find the user
+    WebDriverWait(driver, 15).until(
+        EC.presence_of_element_located(
+            (
+                By.XPATH,
+                f"//div[@title='{username}@{domain}']",
+            )
+        )
+    )
+
     elem = driver.find_element(By.XPATH, "//button[@data-test-id='submitBtn']")
     elem.click()
+    WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located(
+            (
+                By.XPATH,
+                f"//clr-dg-cell[text()='{username}']",
+            )
+        )
+    )
+
     # Ensure we've got the new record
-    assert driver.find_element(By.XPATH, f"//clr-dg-cell[text()='{username}']")
-    assert driver.find_element(By.XPATH, f"//clr-dg-cell[text()='{domain}']")
     logging.info(f"User {username} added in group {group} ")
     return driver
-
-
-# driver = login()
-# set_role(driver, "goneri", "datastore.test", "Administrator")
-# set_group(driver, "goneri", "datastore.test", "ActAsUsers")
-# set_group(driver, "goneri", "datastore.test", "Administrators")
 
 
 parser = argparse.ArgumentParser(
